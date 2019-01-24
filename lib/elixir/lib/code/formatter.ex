@@ -265,6 +265,7 @@ defmodule Code.Formatter do
       locals_without_parens: locals_without_parens,
       operand_nesting: 2,
       rename_deprecated_at: rename_deprecated_at,
+      trailing_comma: Keyword.get(opts, :trailing_comma, false),
       comments: comments
     }
   end
@@ -1446,7 +1447,7 @@ defmodule Code.Formatter do
     fun = &quoted_to_algebra(&1, :parens_arg, &2)
 
     {args_doc, _join, state} =
-      args_to_algebra_with_comments(args, meta, false, :none, join, state, fun)
+      args_to_algebra_with_comments(args, meta, false, :state, join, state, fun)
 
     {surround("[", args_doc, "]"), state}
   end
@@ -1457,7 +1458,7 @@ defmodule Code.Formatter do
     {left_doc, state} = fun.(left, state)
 
     {right_doc, _join, state} =
-      args_to_algebra_with_comments(right, meta, false, :none, join, state, fun)
+      args_to_algebra_with_comments(right, meta, false, :state, join, state, fun)
 
     args_doc =
       left_doc
@@ -1473,7 +1474,7 @@ defmodule Code.Formatter do
     fun = &quoted_to_algebra(&1, :parens_arg, &2)
 
     {args_doc, _join, state} =
-      args_to_algebra_with_comments(args, meta, false, :none, join, state, fun)
+      args_to_algebra_with_comments(args, meta, false, :state, join, state, fun)
 
     name_doc = "%" |> concat(name_doc) |> concat("{")
     {surround(name_doc, args_doc, "}"), state}
@@ -1601,12 +1602,29 @@ defmodule Code.Formatter do
     arg_to_algebra = fn arg, args, newlines, state ->
       {doc, state} = fun.(arg, state)
 
-      doc =
+      {doc, state} =
         case args do
-          [_ | _] -> concat_to_last_group(doc, ",")
-          [] when last_arg_mode == :force_comma -> concat_to_last_group(doc, ",")
-          [] when last_arg_mode == :next_break_fits -> next_break_fits(doc, :enabled)
-          [] when last_arg_mode == :none -> doc
+          [{:|, _, _}] ->
+            {concat_to_last_group(doc, ","), Map.put(state, :trailing_cons, true)}
+
+          [_ | _] ->
+            {concat_to_last_group(doc, ","), state}
+
+          [] when last_arg_mode == :force_comma ->
+            {concat_to_last_group(doc, ","), state}
+
+          [] when last_arg_mode == :next_break_fits ->
+            {next_break_fits(doc, :enabled), state}
+
+          [] when last_arg_mode == :none ->
+            {doc, state}
+
+          [] when last_arg_mode == :state ->
+            if !Map.get(state, :trailing_cons) && state.trailing_comma && join == :line do
+              {concat_to_last_group(doc, ","), state}
+            else
+              {doc, state}
+            end
         end
 
       {doc, @empty, newlines, state}
